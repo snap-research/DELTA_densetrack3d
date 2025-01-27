@@ -28,7 +28,6 @@ This is the official GitHub repository of the paper:
 - [x] Release model weights on [Google Drive](https://drive.google.com/file/d/18d5M3nl3AxbG4ZkT7wssvMXZXbmXrnjz/view?usp=sharing) and [demo script](demo.py)
 - [x] Release training code & dataset preparation
 - [x] Release evaluation code
-- [ ] Gradio Demo
 
 ## Getting Started
 
