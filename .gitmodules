@@ -1,0 +1,6 @@
+[submodule "submodules/UniDepth"]
+	path = submodules/UniDepth
+	url = https://github.com/lpiccinelli-eth/UniDepth.git
+[submodule "submodules/DepthCrafter"]
+	path = submodules/DepthCrafter
+	url = https://github.com/Tencent/DepthCrafter.git
