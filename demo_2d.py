@@ -2,9 +2,7 @@ import os
 import argparse
 import pickle
 import mediapy as media
-import numpy as np
 import torch
-import torch.nn.functional as F
 from einops import rearrange
 
 from densetrack3d.datasets.custom_data import read_data
@@ -18,9 +16,6 @@ def get_args_parser():
     parser.add_argument("--ckpt", type=str, default="checkpoints/densetrack2d.pth", help="checkpoint path")
     parser.add_argument("--video_path", type=str, default="demo_data/rollerblade", help="demo video path")
     parser.add_argument("--output_path", type=str, default="results/demo", help="output path")
-    parser.add_argument(
-        "--use_depthcrafter", action="store_true", help="whether to use depthcrafter as input videodepth"
-    )
     parser.add_argument("--viz_sparse", type=bool, default=True, help="whether to viz sparse tracking")
     parser.add_argument("--downsample", type=int, default=16, help="downsample factor of sparse tracking")
     parser.add_argument("--upsample_factor", type=int, default=4, help="model stride")
@@ -34,7 +29,7 @@ if __name__ == "__main__":
     parser = get_args_parser()
     args = parser.parse_args()
 
-    print("Create DenseTrack3D model")
+    print("Create DenseTrack2D model")
     model = DenseTrack2D(
         stride=4,
         window_len=16,
