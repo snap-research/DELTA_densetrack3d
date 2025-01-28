@@ -162,10 +162,10 @@ class Predictor3D(torch.nn.Module):
             use_dense=False
         )
 
-        traj_e, d_e, vis_e = sparse_predictions["coords"], sparse_predictions["coord_depths"], sparse_predictions["vis"]
+        traj_e, d_e, vis_e, conf_e = sparse_predictions["coords"], sparse_predictions["coord_depths"], sparse_predictions["vis"], sparse_predictions["conf"]
 
         if backward_tracking:
-            traj_e, d_e, vis_e = self._compute_backward_tracks(video, videodepth, queries, traj_e, d_e, vis_e)
+            traj_e, d_e, vis_e, conf_e = self._compute_backward_tracks(video, videodepth, queries, traj_e, d_e, vis_e, conf_e)
             if add_support_grid:
                 queries[:, -self.support_grid_size**2 :, 0] = T - 1
 
@@ -173,6 +173,7 @@ class Predictor3D(torch.nn.Module):
             traj_e = traj_e[:, :, : -self.support_grid_size**2]
             d_e = d_e[:, :, : -self.support_grid_size**2]
             vis_e = vis_e[:, :, : -self.support_grid_size**2]
+            conf_e = conf_e[:, :, : -self.support_grid_size**2]
 
         thr = 0.9
         vis_e = vis_e > thr
@@ -217,13 +218,13 @@ class Predictor3D(torch.nn.Module):
             "trajs_uv": traj_e, 
             "trajs_depth": d_e, 
             "vis": vis_e, 
+            "conf": conf_e,
             "trajs_3d_dict": sparse_trajs_3d_dict,
-            # "dense_reso": self.interp_shape
         }
 
         return out
 
-    def _compute_backward_tracks(self, video, videodepth, queries, traj_e, d_e, vis_e):
+    def _compute_backward_tracks(self, video, videodepth, queries, traj_e, d_e, vis_e, conf_e):
         inv_video = video.flip(1).clone()
         inv_videodepth = videodepth.flip(1).clone()
         inv_queries = queries.clone()
@@ -238,10 +239,12 @@ class Predictor3D(torch.nn.Module):
             use_dense=False,
         )
 
-        inv_trajs_e, inv_d_e, inv_vis_e = (
+        inv_trajs_e, inv_d_e, inv_vis_e, inv_conf_e = (
             sparse_predictions["coords"].flip(1),
             sparse_predictions["coord_depths"].flip(1),
             sparse_predictions["vis"].flip(1),
+            sparse_predictions["conf"].flip(1),
+
         )
 
         arange = torch.arange(video.shape[1], device=queries.device)[None, :, None]
@@ -251,5 +254,6 @@ class Predictor3D(torch.nn.Module):
         traj_e[mask] = inv_trajs_e[mask]
         d_e[mask[:, :, :, 0]] = inv_d_e[mask[:, :, :, 0]]
         vis_e[mask[:, :, :, 0]] = inv_vis_e[mask[:, :, :, 0]]
+        conf_e[mask[:, :, :, 0]] = inv_conf_e[mask[:, :, :, 0]]
 
-        return traj_e, d_e, vis_e
+        return traj_e, d_e, vis_e, conf_e

@@ -12,17 +12,15 @@ from densetrack3d.models.model_utils import bilinear_sample2d, get_points_on_a_g
 class Predictor2D(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
-        self.support_grid_size = 6
-        # model = build_cotracker(checkpoint)
         self.interp_shape = model.model_resolution
         self.model = model
-        self.model.eval()
+        self.n_iters = 6
+        self.support_grid_size = 6
 
     @torch.inference_mode()
     def forward(
         self,
         video,  # (B, T, 3, H, W)
-        # videodepth,
         # input prompt types:
         # - None. Dense tracks are computed in this case. You can adjust *query_frame* to compute tracks starting from a specific frame.
         # *backward_tracking=True* will compute tracks in both directions.
@@ -34,20 +32,31 @@ class Predictor2D(torch.nn.Module):
         grid_size: int = 0,
         grid_query_frame: int = 0,  # only for dense and regular grid tracks
         backward_tracking: bool = False,
+        scale_to_origin: bool = True
     ):
-        tracks, visibilities = self._compute_sparse_tracks(
-            video,
-            queries,
-            segm_mask,
-            grid_size,
-            add_support_grid=(grid_size == 0 or segm_mask is not None),
-            grid_query_frame=grid_query_frame,
-            backward_tracking=backward_tracking,
-        )
+        if queries is None and grid_size == 0:
+            out = self._compute_dense_tracks(
+                video,
+                grid_query_frame=grid_query_frame,
+                backward_tracking=backward_tracking,
+                predefined_intrs=predefined_intrs,
+                scale_to_origin=scale_to_origin
+            )
+        else:
+            out = self._compute_sparse_tracks(
+                video,
+                queries,
+                segm_mask,
+                grid_size,
+                add_support_grid=(grid_size == 0 or segm_mask is not None),
+                grid_query_frame=grid_query_frame,
+                backward_tracking=backward_tracking,
+                scale_to_origin=scale_to_origin
+            )
 
-        return tracks, visibilities
+        return out
 
-    def _compute_dense_tracks(self, video, videodepth, grid_query_frame, grid_size=80, backward_tracking=False):
+    def _compute_dense_tracks(self, video, grid_query_frame, grid_size=80, backward_tracking=False, scale_to_origin=True):
         *_, H, W = video.shape
         grid_step = W // grid_size
         grid_width = W // grid_step
@@ -63,7 +72,6 @@ class Predictor2D(torch.nn.Module):
             grid_pts[0, :, 2] = torch.arange(grid_height).repeat_interleave(grid_width) * grid_step + oy
             tracks_step, visibilities_step = self._compute_sparse_tracks(
                 video=video,
-                videodepth=videodepth,
                 queries=grid_pts,
                 backward_tracking=backward_tracking,
             )
@@ -75,23 +83,21 @@ class Predictor2D(torch.nn.Module):
     def _compute_sparse_tracks(
         self,
         video,
-        # videodepth,
         queries,
         segm_mask=None,
         grid_size=0,
         add_support_grid=False,
         grid_query_frame=0,
         backward_tracking=False,
+        scale_to_origin=True
     ):
         B, T, C, H, W = video.shape
 
-        video = video.reshape(B * T, C, H, W)
-        video = F.interpolate(video, tuple(self.interp_shape), mode="bilinear", align_corners=True)
-        video = video.reshape(B, T, 3, self.interp_shape[0], self.interp_shape[1])
+        ori_video = video.clone()
 
-        # videodepth = videodepth.reshape(B * T, 1, H, W)
-        # videodepth = F.interpolate(videodepth, tuple(self.interp_shape), mode="nearest")
-        # videodepth = videodepth.reshape(B, T, 1, self.interp_shape[0], self.interp_shape[1])
+        video = F.interpolate(
+            video.flatten(0, 1), tuple(self.interp_shape), mode="bilinear", align_corners=True
+        ).reshape(B, T, 3, self.interp_shape[0], self.interp_shape[1])
 
         if queries is not None:
             B, N, D = queries.shape
@@ -124,70 +130,80 @@ class Predictor2D(torch.nn.Module):
             grid_pts = grid_pts.repeat(B, 1, 1)
             queries = torch.cat([queries, grid_pts], dim=1)
 
-        # depths = videodepth
-        # rgbds = torch.cat([video, depths], dim=2)
-        # get the 3D queries # B, N, 3
-        # depth_interp = []
-        # for i in range(queries.shape[1]):
-        #     depth_interp_i = bilinear_sample2d(videodepth[0, queries[:, i:i+1, 0].long()],
-        #                         queries[:, i:i+1, 1], queries[:, i:i+1, 2])
-        #     depth_interp.append(depth_interp_i)
+        sparse_predictions, dense_predictions, _ = self.model(
+            video=video, 
+            sparse_queries=queries, 
+            iters=self.n_iters, 
+            use_dense=False
+        )
 
-        # depth_interp = torch.cat(depth_interp, dim=1)
-        # queries = smart_cat(queries, depth_interp,dim=-1)
+        traj_e, vis_e, conf_e = sparse_predictions["coords"], sparse_predictions["vis"], sparse_predictions["conf"]
 
-        # breakpoint()
-
-        tracks, visibilities, __ = self.model.forward(video=video, queries=queries, iters=6)
-
-        # breakpoint()
         if backward_tracking:
-            tracks, visibilities = self._compute_backward_tracks(video, queries, tracks, visibilities)
+            traj_e, vis_e, conf_e = self._compute_backward_tracks(video, queries, traj_e, vis_e, conf_e)
             if add_support_grid:
                 queries[:, -self.support_grid_size**2 :, 0] = T - 1
+
         if add_support_grid:
-            tracks = tracks[:, :, : -self.support_grid_size**2]
-            visibilities = visibilities[:, :, : -self.support_grid_size**2]
+            traj_e = traj_e[:, :, : -self.support_grid_size**2]
+            vis_e = vis_e[:, :, : -self.support_grid_size**2]
+            conf_e = conf_e[:, :, : -self.support_grid_size**2]
+
+
         thr = 0.9
-        visibilities = visibilities > thr
+        vis_e = vis_e > thr
 
         # correct query-point predictions
         # see https://github.com/facebookresearch/co-tracker/issues/28
 
         # TODO: batchify
         for i in range(len(queries)):
-            queries_t = queries[i, : tracks.size(2), 0].to(torch.int64)
+            queries_t = queries[i, : traj_e.size(2), 0].to(torch.int64)
             arange = torch.arange(0, len(queries_t))
 
             # overwrite the predictions with the query points
-            tracks[i, queries_t, arange] = queries[i, : tracks.size(2), 1:]
+            traj_e[i, queries_t, arange] = queries[i, : traj_e.size(2), 1:3]
+            vis_e[i, queries_t, arange] = True
 
-            # correct visibilities, the query points should be visible
-            visibilities[i, queries_t, arange] = True
+        if scale_to_origin:
+            traj_e[..., 0] *= (W - 1) / float(self.interp_shape[1] - 1)
+            traj_e[..., 1] *= (H - 1) / float(self.interp_shape[0] - 1)
 
-        # tracks[..., :2] *= tracks[..., :2].new_tensor(
-        #     [(W - 1) / (self.interp_shape[1] - 1), (H - 1) / (self.interp_shape[0] - 1)]
-        # )
 
-        tracks[..., 0] *= (W - 1) / float(self.interp_shape[1] - 1)
-        tracks[..., 1] *= (H - 1) / float(self.interp_shape[0] - 1)
+        out = {
+            "trajs_uv": traj_e, 
+            "vis": vis_e, 
+            "conf": conf_e
+            # "dense_reso": self.interp_shape
+        }
 
-        # breakpoint()
-        return tracks, visibilities
+        return out
 
-    def _compute_backward_tracks(self, video, queries, tracks, visibilities):
+    def _compute_backward_tracks(self, video, queries, traj_e, vis_e, conf_e):
         inv_video = video.flip(1).clone()
         inv_queries = queries.clone()
         inv_queries[:, :, 0] = inv_video.shape[1] - inv_queries[:, :, 0] - 1
 
-        inv_tracks, inv_visibilities, __ = self.model(video=inv_video, queries=inv_queries, iters=6)
+        sparse_predictions, dense_predictions, _ = self.model(
+            video=inv_video,
+            queries=inv_queries,
+            sparse_queries=inv_queries,
+            iters=self.n_iters,
+            use_dense=False,
+        )
 
-        inv_tracks = inv_tracks.flip(1)
-        inv_visibilities = inv_visibilities.flip(1)
+        inv_trajs_e, inv_vis_e, inv_conf_e = (
+            sparse_predictions["coords"].flip(1),
+            sparse_predictions["vis"].flip(1),
+            sparse_predictions["conf"].flip(1),
+        )
+
         arange = torch.arange(video.shape[1], device=queries.device)[None, :, None]
 
         mask = (arange < queries[:, None, :, 0]).unsqueeze(-1).repeat(1, 1, 1, 2)
 
-        tracks[mask] = inv_tracks[mask]
-        visibilities[mask[:, :, :, 0]] = inv_visibilities[mask[:, :, :, 0]]
-        return tracks, visibilities
+        traj_e[mask] = inv_trajs_e[mask]
+        vis_e[mask[:, :, :, 0]] = inv_vis_e[mask[:, :, :, 0]]
+        conf_e[mask[:, :, :, 0]] = inv_conf_e[mask[:, :, :, 0]]
+
+        return traj_e, vis_e, conf_e

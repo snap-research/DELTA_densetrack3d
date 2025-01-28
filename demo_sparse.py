@@ -154,7 +154,7 @@ if __name__ == "__main__":
     video = torch.from_numpy(video).permute(0, 3, 1, 2).cuda()[None].float()
     videodepth = torch.from_numpy(videodepth).unsqueeze(1).cuda()[None].float()
 
-    print("Run DenseTrack3D")
+    print("Run SparseTrack3D")
 
     with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=args.use_fp16):
         out_dict = predictor(

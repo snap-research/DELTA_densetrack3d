@@ -16,7 +16,7 @@ from densetrack3d.utils.visualizer import Visualizer
 
 
 BASE_DIR = os.getcwd()
-
+device = torch.device("cuda")
 
 @torch.inference_mode()
 def predict_unidepth(video, model):
@@ -107,7 +107,7 @@ if __name__ == "__main__":
         from unidepth.models import UniDepthV2
         from unidepth.utils import colorize, image_grid
 
-        device = torch.device("cuda")
+        
         unidepth_model = UniDepthV2.from_pretrained(f"lpiccinelli/unidepth-v2-vitl14")
         unidepth_model = unidepth_model.eval().to(device)
 

@@ -44,18 +44,20 @@ class DenseTrack2D(nn.Module):
         num_virtual_tracks=64,
         model_resolution=(384, 512),
         only_learnup=False,
+        upsample_factor=4
     ):
         super().__init__()
         self.window_len = window_len
         self.stride = stride
         self.hidden_dim = 256
         self.latent_dim = 128
+        self.upsample_factor = upsample_factor
         self.add_space_attn = add_space_attn
         self.fnet = BasicEncoder(input_dim=3, output_dim=self.latent_dim)
 
         self.num_virtual_tracks = num_virtual_tracks
         self.model_resolution = model_resolution
-        self.input_dim = 1030
+        self.input_dim = 1032
         self.updateformer = EfficientUpdateFormer(
             num_blocks=6,
             input_dim=self.input_dim,
@@ -102,6 +104,7 @@ class DenseTrack2D(nn.Module):
             stride=self.stride,
             latent_dim=self.latent_dim,
             num_attn_blocks=2,
+            upsample_factor=self.upsample_factor
         )
 
         self.initialize_up_weight()
@@ -296,9 +299,7 @@ class DenseTrack2D(nn.Module):
     def forward_window(
         self,
         fmaps_pyramid: tuple[VideoType, ...],
-        # depthmaps: Float[Tensor, "b t 1 h w"],
         coords: Float[Tensor, "b t n c"],
-        # coord_depths: Float[Tensor, "b t n 1"],
         vis: Float[Tensor, "b t n"],
         conf: Float[Tensor, "b t n"],
         track_feat: Float[Tensor, "b t n c"],
@@ -327,33 +328,23 @@ class DenseTrack2D(nn.Module):
             pos_emb = sample_features4d(self.pos_emb.repeat(B, 1, 1, 1), coords[:, 0])
 
         coord_preds = []
-        # coord_depth_preds = []
-
-        # FIXME fix depth
-        # depthmaps[depthmaps < 1e-2] = 1e-2
 
         for iteration in range(iters):
             coords = coords.detach()  # B S N 3
-            # coord_depths = coord_depths.detach()
-            # coord_depths[coord_depths < 1e-2] = 1e-2
 
             # NOTE Prepare input to transformer
             fcorrs = self.get_4dcorr_features(fmaps_pyramid, coords, supp_track_feat)
 
-            # dcorrs = self.get_single_corr_depth(depthmaps, coords, coord_depths)
 
             # Get the 2D flow embeddings
             flows_2d = coords - coords[:, 0:1]
             flows_2d_emb = get_2d_embedding(flows_2d, 64, cat_coords=True)  # N S E
-            # flows_3d = coord_depths / coord_depths[:, 0:1]
 
             transformer_input = torch.cat(
                 [
                     flows_2d_emb,
-                    flows_2d,
-                    # flows_3d,
+                    flows_2d.repeat(1,1,1,2),
                     fcorrs,
-                    # dcorrs,
                     track_feat,
                     track_mask_vis,
                 ],
@@ -372,18 +363,15 @@ class DenseTrack2D(nn.Module):
             )
 
             delta_coords = delta[..., :2]
-            # ratio_coords_depths = torch.exp(0.1 * torch.clamp(delta[..., 2:3], -50, 50))
             delta_feat = self.track_feat_updater(self.norm(rearrange(delta[..., 2:], "b t n c -> (b t n) c")))
             delta_feat = rearrange(delta_feat, "(b t n) c -> b t n c", b=B, t=S)  ###########################
 
             # NOTE Update
             track_feat = track_feat + delta_feat
             coords = coords + delta_coords
-            # coord_depths = coord_depths * ratio_coords_depths
             ###########################
 
             coord_preds.append(coords.clone())
-            # coord_depth_preds.append(coord_depths.clone())
 
         vis_pred = self.vis_predictor(track_feat).squeeze(-1)  # b s n
         conf_pred = self.conf_predictor(track_feat).squeeze(-1)  # b s n
@@ -431,13 +419,11 @@ class DenseTrack2D(nn.Module):
         track_feat = repeat(track_feat, "b 1 n c -> b s n c", s=S)
 
         coords_init = sparse_queried_coords[..., :2].reshape(B, 1, N_sparse, 2).expand(B, S, N_sparse, 2).float()
-        depths_init = sparse_queried_coords[..., 2:3].reshape(B, 1, N_sparse, 1).expand(B, S, N_sparse, 1).float()
         vis_init = torch.ones((B, S, N_sparse, 1), device=device).float() * 10
         conf_init = torch.ones((B, S, N_sparse, 1), device=device).float() * 10
 
         return (
             coords_init,
-            depths_init,
             vis_init,
             conf_init,
             track_feat,
@@ -448,7 +434,6 @@ class DenseTrack2D(nn.Module):
     def prepare_dense_queries(
         self,
         coords_init: Float[Tensor, "b t n c"],
-        # coord_depths_init: Float[Tensor, "b t n 1"],
         vis_init: Float[Tensor, "b t n"],
         conf_init: Float[Tensor, "b t n"],
         track_feat: Float[Tensor, "b t n c"],
@@ -473,12 +458,6 @@ class DenseTrack2D(nn.Module):
             x0, y0 = [0] * B, [0] * B
         self.dH, self.dW = dH, dW
 
-        # cropped_depths = torch.stack(
-        #     [depth_init_downsample[b, :, y0_ : y0_ + dH, x0_ : x0_ + dW] for (b, y0_, x0_) in zip(range(B), y0, x0)],
-        #     dim=0,
-        # )
-        # cropped_depths = rearrange(cropped_depths, "b c h w -> b (h w) c")
-
         dense_grid_2d = (
             get_grid(dH, dW, normalize=False, device=fmaps.device).reshape(-1, 2).unsqueeze(0).repeat(B, 1, 1)
         )  # B, (H, W) 2
@@ -487,7 +466,6 @@ class DenseTrack2D(nn.Module):
             dense_grid_2d[b, :, 1] += y0[b]
 
         dense_coords_init = repeat(dense_grid_2d, "b n c -> b s n c", s=S)
-        # dense_coord_depths_init = repeat(cropped_depths, "b n c -> b s n c", s=S)
         dense_vis_init = torch.ones((B, S, dH * dW, 1), device=device).float() * 10
         dense_conf_init = torch.ones((B, S, dH * dW, 1), device=device).float() * 10
 
@@ -516,9 +494,6 @@ class DenseTrack2D(nn.Module):
         coords_init = smart_cat(
             coords_init, dense_coords_init, dim=2
         )  # torch.cat([coords_init, dense_coords_init], dim=2)
-        # coord_depths_init = smart_cat(
-        #     coord_depths_init, dense_coord_depths_init, dim=2
-        # )  # torch.cat([coord_depths_init, dense_coord_depths_init], dim=2)
         vis_init = smart_cat(vis_init, dense_vis_init, dim=2)  # torch.cat([vis_init, dense_vis_init], dim=2)
         conf_init = smart_cat(conf_init, dense_conf_init, dim=2)  # torch.cat([vis_init, dense_vis_init], dim=2)
         track_feat = smart_cat(track_feat, dense_track_feat, dim=2)  # torch.cat([track_feat, dense_track_feat], dim=2)
@@ -532,9 +507,7 @@ class DenseTrack2D(nn.Module):
     def forward(
         self,
         video: VideoType,
-        # videodepth: Float[Tensor, "b t 1 h w"],
         sparse_queries: Float[Tensor, "b n c"] = None,
-        # depth_init: Float[Tensor, "b 1 h w"] = None,
         iters: int = 4,
         is_train: bool = False,
         use_dense: bool = True,
@@ -608,11 +581,9 @@ class DenseTrack2D(nn.Module):
 
             # We store our predictions here
             coords_predicted = torch.zeros((B, ori_T, self.N_sparse, 2), device=device)
-            # coords_depths_predicted = torch.zeros((B, ori_T, self.N_sparse, 1), device=device)
             vis_predicted = torch.zeros((B, ori_T, self.N_sparse), device=device)
             conf_predicted = torch.zeros((B, ori_T, self.N_sparse), device=device)
-            all_coords_predictions, all_coord_depths_predictions, all_vis_predictions, all_conf_predictions = (
-                [],
+            all_coords_predictions, all_vis_predictions, all_conf_predictions = (
                 [],
                 [],
                 [],
@@ -622,14 +593,12 @@ class DenseTrack2D(nn.Module):
             coords_init, vis_init, conf_init, track_feat, supp_track_feats_pyramid, (x0, y0) = (
                 self.prepare_dense_queries(
                     coords_init,
-                    # depths_init,
                     vis_init,
                     conf_init,
                     track_feat,
                     supp_track_feats_pyramid,
                     fmaps,
                     fmaps_pyramid,
-                    # depth_init_downsample,
                     is_train,
                 )
             )
@@ -637,9 +606,6 @@ class DenseTrack2D(nn.Module):
             dense_coords_up_predicted = torch.zeros(
                 (B, ori_T, 2, self.dH * self.stride, self.dW * self.stride), device=device
             )
-            # dense_coord_depths_up_predicted = torch.zeros(
-            #     (B, ori_T, 1, self.dH * self.stride, self.dW * self.stride), device=device
-            # )
             dense_vis_up_predicted = torch.zeros(
                 (B, ori_T, self.dH * self.stride, self.dW * self.stride), device=device
             )
@@ -678,7 +644,6 @@ class DenseTrack2D(nn.Module):
                     ).bool()
 
                 last_coords = coords[-1][:, -overlap:].clone()
-                # last_depths = coords_depths[-1][:, -overlap:].clone()
                 last_vis = vis[:, -overlap:].clone()[..., None]
                 last_conf = conf[:, -overlap:].clone()[..., None]
 
@@ -687,11 +652,6 @@ class DenseTrack2D(nn.Module):
                     (0, 0, 0, 0, 0, step),
                     "replicate",
                 )  # B S N 2
-                # depths_prev = torch.nn.functional.pad(
-                #     last_depths,
-                #     (0, 0, 0, 0, 0, step),
-                #     "replicate",
-                # )  # B S N 2
                 vis_prev = torch.nn.functional.pad(
                     last_vis,
                     (0, 0, 0, 0, 0, step),
@@ -704,7 +664,6 @@ class DenseTrack2D(nn.Module):
                 )  # B S N 1
 
                 coords_init = torch.where(copy_over.expand_as(coords_init), coords_prev, coords_init)
-                # depths_init = torch.where(copy_over.expand_as(depths_init), depths_prev, depths_init)
                 vis_init = torch.where(copy_over.expand_as(vis_init), vis_prev, vis_init)
                 conf_init = torch.where(copy_over.expand_as(conf_init), conf_prev, conf_init)
 
@@ -731,9 +690,7 @@ class DenseTrack2D(nn.Module):
 
             coords, vis, conf, track_feat_updated = self.forward_window(
                 fmaps_pyramid=[f[:, ind : ind + S] for f in fmaps_pyramid],
-                # depthmaps=videodepth_downsample[:, ind : ind + S],
                 coords=coords_init,
-                # coord_depths=depths_init,
                 vis=vis_init,
                 conf=conf_init,
                 track_feat=attention_mask.unsqueeze(-1).float() * track_feat,
@@ -748,7 +705,6 @@ class DenseTrack2D(nn.Module):
 
             if use_sparse:
                 coords_predicted[:, ind : ind + S] = coords[-1][:, :S_trimmed, : self.N_sparse] * self.stride
-                # coords_depths_predicted[:, ind : ind + S] = coords_depths[-1][:, :S_trimmed, : self.N_sparse]
                 vis_predicted[:, ind : ind + S] = vis[:, :S_trimmed, : self.N_sparse]
                 conf_predicted[:, ind : ind + S] = conf[:, :S_trimmed, : self.N_sparse]
 
@@ -756,9 +712,6 @@ class DenseTrack2D(nn.Module):
                     all_coords_predictions.append(
                         [(coord[:, :S_trimmed, : self.N_sparse] * self.stride) for coord in coords]
                     )
-                    # all_coord_depths_predictions.append(
-                    #     [coords_d[:, :S_trimmed, : self.N_sparse] for coords_d in coords_depths]
-                    # )
                     all_vis_predictions.append(torch.sigmoid(vis[:, :S_trimmed, : self.N_sparse]))
                     all_conf_predictions.append(torch.sigmoid(conf[:, :S_trimmed, : self.N_sparse]))
 
@@ -768,10 +721,6 @@ class DenseTrack2D(nn.Module):
                     rearrange(coord_[:, :, self.N_sparse :], "b s (h w) c -> (b s) c h w", h=self.dH, w=self.dW)
                     for coord_ in coords
                 ]
-                # dense_coords_depths_down_list = [
-                #     rearrange(coords_depth_[:, :, self.N_sparse :], "b s (h w) c -> (b s) c h w", h=self.dH, w=self.dW)
-                #     for coords_depth_ in coords_depths
-                # ]
                 dense_vis_down = rearrange(
                     vis[:, :, self.N_sparse :], "b s (h w) -> (b s) 1 h w", h=self.dH, w=self.dW
                 )
@@ -796,7 +745,6 @@ class DenseTrack2D(nn.Module):
                 dense_coords_up_list, dense_coords_depths_up_list = [], []
                 for pred_id_ in range(len(dense_coords_down_list)):
                     dense_coords_down = dense_coords_down_list[pred_id_]
-                    # dense_coords_depths_down = dense_coords_depths_down_list[pred_id_]
 
                     dense_coords_up = self.original_grid_high_reso + self.upsample_with_mask(
                         (dense_coords_down - self.original_grid_low_reso) * self.stride,
@@ -805,14 +753,6 @@ class DenseTrack2D(nn.Module):
                     dense_coords_up = rearrange(dense_coords_up, "(b s) c h w -> b s c h w", b=B, s=S)
                     dense_coords_up_list.append(dense_coords_up)
 
-                    # dense_coords_depths_up = self.upsample_with_mask(
-                    #     dense_coords_depths_down,  # dense_coords_depths_down * (self.d_far-self.d_near) / self.Dz + self.d_near,
-                    #     up_mask,
-                    # )
-
-                    # dense_coords_depths_up = rearrange(dense_coords_depths_up, "(b s) c h w -> b s c h w", b=B, s=S)
-
-                    # dense_coords_depths_up_list.append(dense_coords_depths_up)
 
                 dense_vis_up = self.upsample_with_mask(dense_vis_down, up_mask)
                 dense_vis_up = rearrange(dense_vis_up, "(b s) 1 h w -> b s h w", b=B, s=S)
@@ -823,9 +763,6 @@ class DenseTrack2D(nn.Module):
                 dense_coords_up_predicted[:, ind : ind + S] = dense_coords_up_list[-1][
                     :, :S_trimmed
                 ]  # dense_coords_out[:, -1]
-                # dense_coord_depths_up_predicted[:, ind : ind + S] = dense_coords_depths_up_list[-1][
-                #     :, :S_trimmed
-                # ]  #  dense_coord_depths_out[:, -1]
                 dense_vis_up_predicted[:, ind : ind + S] = dense_vis_up[:, :S_trimmed]
                 dense_conf_up_predicted[:, ind : ind + S] = dense_conf_up[:, :S_trimmed]
 
@@ -833,9 +770,6 @@ class DenseTrack2D(nn.Module):
                     all_dense_coords_predictions.append(
                         [dense_coord[:, :S_trimmed] for dense_coord in dense_coords_up_list]
                     )  # B I T C H W
-                    # all_dense_coord_depths_predictions.append(
-                    #     [dense_coord_depths[:, :S_trimmed] for dense_coord_depths in dense_coords_depths_up_list]
-                    # )  # B I T C H W
                     all_dense_vis_predictions.append(torch.sigmoid(dense_vis_up[:, :S_trimmed]))
                     all_dense_conf_predictions.append(torch.sigmoid(dense_conf_up[:, :S_trimmed]))
 
@@ -846,7 +780,6 @@ class DenseTrack2D(nn.Module):
             conf_predicted = torch.sigmoid(conf_predicted)
             sparse_predictions = dict(
                 coords=coords_predicted,
-                # coord_depths=coords_depths_predicted,
                 vis=vis_predicted,
                 conf=conf_predicted,
             )
@@ -856,7 +789,6 @@ class DenseTrack2D(nn.Module):
             dense_conf_up_predicted = torch.sigmoid(dense_conf_up_predicted)
             dense_predictions = dict(
                 coords=dense_coords_up_predicted,
-                # coord_depths=dense_coord_depths_up_predicted,
                 vis=dense_vis_up_predicted,
                 conf=dense_conf_up_predicted,
             )
@@ -869,7 +801,6 @@ class DenseTrack2D(nn.Module):
             mask = sparse_queried_frames[:, None] <= torch.arange(0, T, device=device)[None, :, None]
             sparse_train_data_dict = dict(
                 coords=all_coords_predictions,
-                # coord_depths=all_coord_depths_predictions,
                 vis=all_vis_predictions,
                 conf=all_conf_predictions,
                 mask=mask,
@@ -878,7 +809,6 @@ class DenseTrack2D(nn.Module):
         if use_dense:
             dense_train_data_dict = dict(
                 coords=all_dense_coords_predictions,
-                # coord_depths=all_dense_coord_depths_predictions,
                 vis=all_dense_vis_predictions,
                 conf=all_dense_conf_predictions,
                 x0y0=(x0, y0),
