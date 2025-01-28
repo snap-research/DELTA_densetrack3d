@@ -127,13 +127,13 @@ gdown --fuzzy https://drive.google.com/file/d/18d5M3nl3AxbG4ZkT7wssvMXZXbmXrnjz/
 - **Dense 2D Tracking**: This mode is similar to [DOT](https://github.com/16lemoing/dot), where the model only takes an RGB video (no depth input) and outputs the dense 2D coords map (UV map).
 
   ```bash
-  python3 demo_2d.py --ckpt checkpoints/densetrack2d.pth --video_path demo_data/yellow-duck --output_path results/demo # run with Unidepth
+  python3 demo_2d.py --ckpt checkpoints/densetrack2d.pth --video_path demo_data/yellow-duck --output_path results/demo
   ```
 
 - **Sparse 2D Tracking**: This mode is similar to [CoTracker](https://github.com/facebookresearch/co-tracker), where the model only takes an RGB video as input, then users can specify which points to track or the model will track a sparse grid of points by default. The output is a set of 2D trajectories.
 
   ```bash
-  python3 demo_2d_sparse.py --ckpt checkpoints/densetrack2d.pth --video_path demo_data/yellow-duck --output_path results/demo # run with Unidepth
+  python3 demo_2d_sparse.py --ckpt checkpoints/densetrack2d.pth --video_path demo_data/yellow-duck --output_path results/demo
   ```
 
 2. [Optional] Visualize the dense 3D tracks with `viser`:
