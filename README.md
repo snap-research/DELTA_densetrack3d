@@ -84,14 +84,16 @@ cd ../..
 
 ### Download Checkpoints
 
-The pretrained checkpoints can be downloaded on [Google Drive](https://drive.google.com/file/d/18d5M3nl3AxbG4ZkT7wssvMXZXbmXrnjz/view?usp=sharing).
+The pretrained checkpoints can be downloaded on [Google Drive](https://drive.google.com/drive/folders/1nT46aWzM1CKdANobWZ2qx8Pd6W4nDvVR?usp=sharing).
 
 
 Run the following commands to download:
 ```bash
 # download the weights
 mkdir -p ./checkpoints/
-gdown --fuzzy https://drive.google.com/file/d/18d5M3nl3AxbG4ZkT7wssvMXZXbmXrnjz/view?usp=sharing -O ./checkpoints/
+gdown --fuzzy https://drive.google.com/file/d/18d5M3nl3AxbG4ZkT7wssvMXZXbmXrnjz/view?usp=sharing -O ./checkpoints/ # 3D ckpt
+gdown --fuzzy https://drive.google.com/file/d/1S_T7DzqBXMtr0voRC_XUGn1VTnPk_7Rm/view?usp=sharing -O ./checkpoints/ # 2D ckpt
+
 ```
 
 
