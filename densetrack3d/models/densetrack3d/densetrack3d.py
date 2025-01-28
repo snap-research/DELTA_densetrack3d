@@ -20,7 +20,7 @@ from densetrack3d.models.model_utils import (
 )
 from einops import einsum, rearrange, repeat
 
-from jaxtyping import Bool, Float, Int64, Shaped
+from jaxtyping import Bool, Float
 from torch import Tensor, nn
 
 
@@ -28,9 +28,6 @@ VideoType = Float[Tensor, "b t c h w"]
 
 torch.manual_seed(0)
 
-# torch.backends.cuda.enable_mem_efficient_sdp(False)
-# torch.backends.cuda.enable_flash_sdp(False)
-# torch.backends.cuda.enable_math_sdp(True)
 
 
 class DenseTrack3D(nn.Module):
@@ -130,7 +127,6 @@ class DenseTrack3D(nn.Module):
         self.only_learnup = only_learnup
 
         if self.only_learnup:
-            # self.grad_context = torch.no_grad
             self.fixed_modules = [
                 "fnet",
                 "updateformer",

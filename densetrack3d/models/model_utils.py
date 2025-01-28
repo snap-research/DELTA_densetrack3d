@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 
 # import pytorch3d.ops as torch3d
-from einops import rearrange
+from einops import einsum, rearrange, repeat
 
 
 EPS = 1e-6
@@ -645,3 +645,37 @@ def disparity_to_depth_with_scaleshift(disp, scale, shift):
     depth = 1.0 / aligned_disp
 
     return depth
+
+
+def convert_trajs_uvd_to_trajs_3d(trajs_uv, trajs_depth, vis, video, intr=None, query_frame=0):
+    device = trajs_uv.device
+    H, W = video.shape[-2:]
+
+    if intr is None:
+        intr = torch.tensor(
+            [
+                [W, 0.0, W // 2],
+                [0.0, W, H // 2],
+                [0.0, 0.0, 1.0],
+            ]
+        ).to(device)
+
+    trajs_uv_homo = torch.cat([trajs_uv, torch.ones_like(trajs_uv[..., 0:1])], dim=-1)  # B T N 3
+
+    xyz = einsum(trajs_uv_homo, torch.linalg.inv(intr), "b t n j, i j -> b t n i")
+    xyz = xyz * trajs_depth
+
+    query_rgb = video[:, query_frame]  # B 3 H W
+
+    pred_tracks2dNm = trajs_uv[:, 0].clone()  #  B N 2
+    pred_tracks2dNm[..., 0] = 2 * (pred_tracks2dNm[..., 0] / W - 0.5)
+    pred_tracks2dNm[..., 1] = 2 * (pred_tracks2dNm[..., 1] / H - 0.5)
+    color_interp = F.grid_sample(query_rgb, pred_tracks2dNm[:, :, None, :], align_corners=True)
+    color_interp = rearrange(color_interp, "b c n 1 -> b n c")
+
+    trajs_3d_dict = {
+        "coords": xyz,
+        "colors": color_interp,
+        "vis": vis,
+    }
+    return trajs_3d_dict

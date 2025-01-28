@@ -6,7 +6,7 @@
 
 import torch
 import torch.nn.functional as F
-from densetrack3d.models.model_utils import bilinear_sample2d, get_points_on_a_grid, smart_cat
+from densetrack3d.models.model_utils import bilinear_sample2d, get_points_on_a_grid, smart_cat, convert_trajs_uvd_to_trajs_3d
 
 
 class Predictor3D(torch.nn.Module):
@@ -27,6 +27,7 @@ class Predictor3D(torch.nn.Module):
         grid_size: int = 0,
         grid_query_frame: int = 0,  # only for dense and regular grid tracks
         backward_tracking: bool = False,
+        predefined_intrs: torch.Tensor = None,
     ):
         if queries is None and grid_size == 0:
             out = self._compute_dense_tracks(
@@ -34,6 +35,7 @@ class Predictor3D(torch.nn.Module):
                 videodepth,
                 grid_query_frame=grid_query_frame,
                 backward_tracking=backward_tracking,
+                predefined_intrs=predefined_intrs,
             )
         else:
             out = self._compute_sparse_tracks(
@@ -45,11 +47,20 @@ class Predictor3D(torch.nn.Module):
                 add_support_grid=(grid_size == 0 or segm_mask is not None),
                 grid_query_frame=grid_query_frame,
                 backward_tracking=backward_tracking,
+                predefined_intrs=predefined_intrs
             )
 
         return out
 
-    def _compute_dense_tracks(self, video, videodepth, grid_query_frame, grid_size=80, backward_tracking=False):
+    def _compute_dense_tracks(
+        self, 
+        video, 
+        videodepth, 
+        grid_query_frame, 
+        grid_size=80, 
+        backward_tracking=False,
+        predefined_intrs=None
+    ):
         *_, H, W = video.shape
         grid_step = W // grid_size
         grid_width = W // grid_step
@@ -85,8 +96,11 @@ class Predictor3D(torch.nn.Module):
         grid_query_frame=0,
         backward_tracking=False,
         scale_to_origin=True,
+        predefined_intrs=None
     ):
         B, T, C, H, W = video.shape
+
+        ori_video = video.clone()
 
         video = F.interpolate(
             video.flatten(0, 1), tuple(self.interp_shape), mode="bilinear", align_corners=True
@@ -141,10 +155,14 @@ class Predictor3D(torch.nn.Module):
         queries = smart_cat(queries, depth_interp, dim=-1)
 
         sparse_predictions, dense_predictions, _ = self.model(
-            video=video, videodepth=videodepth, sparse_queries=queries, iters=self.n_iters, use_dense=False
+            video=video, 
+            videodepth=videodepth, 
+            sparse_queries=queries, 
+            iters=self.n_iters, 
+            use_dense=False
         )
 
-        traj_e, d_e, vis_e = sparse_predictions["coords"], sparse_predictions["vis"]
+        traj_e, d_e, vis_e = sparse_predictions["coords"], sparse_predictions["coord_depths"], sparse_predictions["vis"]
 
         if backward_tracking:
             traj_e, d_e, vis_e = self._compute_backward_tracks(video, videodepth, queries, traj_e, d_e, vis_e)
@@ -176,7 +194,32 @@ class Predictor3D(torch.nn.Module):
             traj_e[..., 0] *= (W - 1) / float(self.interp_shape[1] - 1)
             traj_e[..., 1] *= (H - 1) / float(self.interp_shape[0] - 1)
 
-        out = {"trajs_uv": traj_e, "trajs_depth": d_e, "vis": vis_e, "dense_reso": self.interp_shape}
+        if scale_to_origin:
+            sparse_trajs_3d_dict = convert_trajs_uvd_to_trajs_3d(
+                traj_e,
+                d_e,
+                vis_e,
+                ori_video,
+                query_frame=grid_query_frame,
+                intr=predefined_intrs,
+            )
+        else:
+            sparse_trajs_3d_dict = convert_trajs_uvd_to_trajs_3d(
+                traj_e,
+                d_e,
+                vis_e,
+                video, 
+                query_frame=grid_query_frame, 
+                intr=predefined_intrs
+            )
+
+        out = {
+            "trajs_uv": traj_e, 
+            "trajs_depth": d_e, 
+            "vis": vis_e, 
+            "trajs_3d_dict": sparse_trajs_3d_dict,
+            # "dense_reso": self.interp_shape
+        }
 
         return out
 

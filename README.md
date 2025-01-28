@@ -16,7 +16,7 @@ This is the official GitHub repository of the paper:
 </br>
 *ICLR 2025*
 
-### [Project Page](https://snap-research.github.io/DELTA/) | [Paper](https://arxiv.org/abs/2410.24211) | [BibTeX](#citing-delta)
+### [Project Page](https://snap-research.github.io/DELTA/) | [Arxiv](https://arxiv.org/abs/2410.24211) | [Paper](https://snap-research.github.io/DELTA/files/paper.pdf) | [BibTeX](#citing-delta)
 
 
 <img width="1100" src="./assets/teaser.png" />
@@ -28,7 +28,6 @@ This is the official GitHub repository of the paper:
 - [x] Release model weights on [Google Drive](https://drive.google.com/file/d/18d5M3nl3AxbG4ZkT7wssvMXZXbmXrnjz/view?usp=sharing) and [demo script](demo.py)
 - [x] Release training code & dataset preparation
 - [x] Release evaluation code
-- [ ] Gradio Demo
 
 ## Getting Started
 
@@ -113,13 +112,22 @@ By default, densely tracking a video of ~100 frames requires ~40GB of GPU memory
 python3 demo.py --upsample_factor 8 --use_fp16 --ckpt checkpoints/densetrack3d.pth --video_path demo_data/yellow-duck --output_path results/demo
 ```
 
-2. Visualize the dense 3D tracks with `viser`:
+2. We also support sparse point tracking (similar to [CoTracker](https://github.com/facebookresearch/co-tracker) and [SpaTracker](https://github.com/henry123-boy/SpaTracker)), where users can specify which points to track or the model will track a sparse grid of points by default.
+
+```bash
+python3 demo_sparse.py --ckpt checkpoints/densetrack3d.pth --video_path demo_data/yellow-duck --output_path results/demo # run with Unidepth
+
+# or
+python3 demo_sparse.py --ckpt checkpoints/densetrack3d.pth --video_path demo_data/yellow-duck --output_path results/demo --use_depthcrafter # run with DepthCrafter
+```
+
+3. [Optional] Visualize the dense 3D tracks with `viser`:
 
 ```bash
 python3 visualizer/vis_densetrack3d.py --filepath results/demo/yellow-duck/dense_3d_track.pkl
 ```
 
-3. [Optional] Visualize the dense 3D tracks with `open3d` (GUI required). To highlight the trajectories of the foreground object, we provide a binary foreground mask for the first frame of the video (the starting frame for dense tracking), which can be obtained with SAM.
+4. [Optional] Visualize the dense 3D tracks with `open3d` (GUI required). To highlight the trajectories of the foreground object, we provide a binary foreground mask for the first frame of the video (the starting frame for dense tracking), which can be obtained with SAM.
 
 ```bash
 # first run with mode=choose_viewpoint, a 3D GUI will pop-up and you can select the proper viewpoint to capture. Press "S" to save the viewpoint and exit.
@@ -169,8 +177,6 @@ python3 scripts/eval/eval_flow2d.py
 python3 scripts/eval/eval_2d.py
 ```
 
-
-
 ## Citing DELTA
 
 If you find our repository useful, please consider giving it a star ⭐ and citing our paper in your work:
@@ -183,3 +189,7 @@ If you find our repository useful, please consider giving it a star ⭐ and citi
   year      = {2024}
 }
 ```
+
+## Acknowledgements
+
+Our code is based on [CoTracker](https://github.com/facebookresearch/co-tracker), [SceneTracker](https://github.com/wwsource/SceneTracker), and [LocoTrack](https://github.com/cvlab-kaist/locotrack), the training data generation is based on [Kubric](https://github.com/google-research/kubric), and our visualization code is based on [Viser](https://viser.studio/main/) and [Open3D](https://www.open3d.org/). We thank the authors for their excellent work!
