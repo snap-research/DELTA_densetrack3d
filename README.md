@@ -86,6 +86,11 @@ cd ../..
 
 ```bash
 pip install roma trimesh
+
+cd submodules/Grounded-SAM-2
+pip install -e .
+pip install --no-build-isolation -e grounding_dino
+
 ```
 
 

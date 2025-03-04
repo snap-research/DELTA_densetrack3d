@@ -93,7 +93,6 @@ def prepare_single_pair(pair, pair_id, data_dict, keyframe_id_list, keyframe_mas
 
 def get_args_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ckpt", type=str, default="checkpoints/densetrack3d.pth", help="checkpoint path")
     parser.add_argument("--video_path", type=str, default="demo_data/rollerblade", help="demo video path")
     parser.add_argument("--output_path", type=str, default="results/demo", help="output path")
 
@@ -107,12 +106,12 @@ if __name__ == "__main__":
 
     vid_name = args.video_path.split("/")[-1]
     save_dir = os.path.join(args.output_path, vid_name)
-    os.makedirs(save_dir, exist_ok=True)
+    assert os.path.exists(save_dir)
 
 
 
 
-    data_path = os.path.join(args.output_path, "pred_dict_pairwise.pkl")
+    data_path = os.path.join(save_dir, "pred_dict_pairwise.pkl")
     with open(data_path, 'rb') as handle:
         data_dict = pickle.load(handle)
 
