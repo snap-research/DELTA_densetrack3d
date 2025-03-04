@@ -1,13 +1,5 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-
 import os
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
 import sys
-
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 

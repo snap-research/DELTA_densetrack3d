@@ -82,6 +82,12 @@ pip install -e .
 cd ../..
 ```
 
+6. [Optional] Install dependencies to run camera pose estimation.
+
+```bash
+pip install roma trimesh
+```
+
 
 ### Download Checkpoints
 
