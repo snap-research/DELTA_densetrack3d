@@ -186,7 +186,6 @@ class Predictor2D(torch.nn.Module):
 
         sparse_predictions, dense_predictions, _ = self.model(
             video=inv_video,
-            queries=inv_queries,
             sparse_queries=inv_queries,
             iters=self.n_iters,
             use_dense=False,

@@ -48,33 +48,34 @@ conda activate densetrack3d
 conda install pytorch torchvision pytorch-cuda=12.1 -c pytorch -c nvidia -y  # use the correct version of cuda for your system
 
 pip install pip==24.0 # downgrade pip to install pytorch_lightning==1.6.0
-pip3 install -r requirements.txt
+pip install -r requirements.txt
 conda install ffmpeg -c conda-forge # to write .mp4 video
 
-pip3 install -U "ray[default]" # for parallel processing
-pip3 install viser # for visualize 3D trajectories
+pip install -U "ray[default]" # for parallel processing
+pip install viser # for visualize 3D trajectories
 ```
 
 3. Install `Unidepth`.
 ```bash
-pip3 install ninja
-pip3 install -v -U git+https://github.com/facebookresearch/xformers.git@v0.0.24 # Unidepth requires xformers==0.0.2
+pip install ninja
+pip install -v -U git+https://github.com/facebookresearch/xformers.git@v0.0.24 # Unidepth requires xformers==0.0.2
+pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable" # or go to submodules/UniDepth/unidepth/ops/knn/src then 'bash compile.sh'
 ```
 
 4. [Optional] Install `viser` and `open3d` for 3D visualization.
 
 ```bash
-pip3 install viser
-pip3 install open3d
+pip install viser
+pip install open3d
 ```
 
 5. [Optional] Install dependencies to generate training data with [Kubric](https://github.com/google-research/kubric).
 
 ```bash
-pip3 install bpy==3.4.0
-pip3 install pybullet
-pip3 install OpenEXR
-pip3 install tensorflow tensorflow-datasets>=4.1.0 tensorflow-graphics
+pip install bpy==3.4.0
+pip install pybullet
+pip install OpenEXR
+pip install tensorflow tensorflow-datasets>=4.1.0 tensorflow-graphics
 
 cd data/kubric/
 pip install -e .

@@ -18,6 +18,7 @@ def get_args_parser():
     parser.add_argument("--viz_sparse", type=bool, default=True, help="whether to viz sparse tracking")
     parser.add_argument("--upsample_factor", type=int, default=4, help="model stride")
     parser.add_argument("--grid_size", type=int, default=20, help="model stride")
+    parser.add_argument("--query_frame", type=int, default=0, help="frame to sample tracking queries")
     parser.add_argument("--use_fp16", action="store_true", help="whether to use fp16 precision")
 
     return parser
@@ -60,14 +61,18 @@ if __name__ == "__main__":
     print("Run SparseTrack2D")
 
     with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=args.use_fp16):
+
+        assert args.query_frame >= 0, "query_frame should be >= 0"
+        backward_tracking = True if args.query_frame > 0 else False # if sample from a middle frame, enable backward tracking
+
         out_dict = predictor(
-            video,
-            queries=None,
-            segm_mask=None,
-            grid_size=args.grid_size,
-            grid_query_frame=0,
-            backward_tracking=False,
-        )
+                video,
+                queries=None,
+                segm_mask=None,
+                grid_size=args.grid_size,
+                grid_query_frame=args.query_frame,
+                backward_tracking=backward_tracking,
+            )
 
     trajs_2d_dict = {
         "coords": out_dict["trajs_uv"][0].cpu().numpy(),

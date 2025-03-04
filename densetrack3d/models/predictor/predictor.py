@@ -233,11 +233,11 @@ class Predictor3D(torch.nn.Module):
         sparse_predictions, dense_predictions, _ = self.model(
             video=inv_video,
             videodepth=inv_videodepth,
-            queries=inv_queries,
             sparse_queries=inv_queries,
             iters=self.n_iters,
             use_dense=False,
         )
+
 
         inv_trajs_e, inv_d_e, inv_vis_e, inv_conf_e = (
             sparse_predictions["coords"].flip(1),

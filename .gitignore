@@ -16,3 +16,5 @@ core.*
 
 
 vis_results
+
+demo_data/*/*.npy
