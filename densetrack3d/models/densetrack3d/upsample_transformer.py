@@ -9,11 +9,6 @@ from jaxtyping import Float, Int64
 from torch import Tensor, nn
 
 
-try:
-    from flash_attn import flash_attn_func
-except:
-    print("Flash attn not available")
-
 from densetrack3d.models.densetrack3d.blocks import (
     Attention,
     AttnBlock,

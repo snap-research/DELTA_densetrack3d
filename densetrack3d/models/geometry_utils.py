@@ -5,12 +5,6 @@ import torch
 import torch.nn.functional as F
 from einops import rearrange
 
-
-try:
-    from pytorch3d import ops as torch3d
-except:
-    print("Pytorch3d not installed")
-
 from densetrack3d.models.model_utils import get_grid
 
 

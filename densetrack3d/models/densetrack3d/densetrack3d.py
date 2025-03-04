@@ -1,10 +1,13 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from einops import einsum, rearrange, repeat
+from jaxtyping import Bool, Float
+from torch import Tensor
+
 from densetrack3d.models.densetrack3d.blocks import BasicEncoder
 from densetrack3d.models.densetrack3d.corr4d_blocks import Corr4DMLP
 from densetrack3d.models.densetrack3d.update_transformer import EfficientUpdateFormer
@@ -13,24 +16,16 @@ from densetrack3d.models.embeddings import get_1d_sincos_pos_embed_from_grid, ge
 from densetrack3d.models.model_utils import (
     bilinear_sampler,
     get_grid,
-    get_points_on_a_grid,
     sample_features4d,
     sample_features5d,
     smart_cat,
 )
-from einops import einsum, rearrange, repeat
-
-from jaxtyping import Bool, Float, Int64, Shaped
-from torch import Tensor, nn
 
 
 VideoType = Float[Tensor, "b t c h w"]
 
 torch.manual_seed(0)
 
-# torch.backends.cuda.enable_mem_efficient_sdp(False)
-# torch.backends.cuda.enable_flash_sdp(False)
-# torch.backends.cuda.enable_math_sdp(True)
 
 
 class DenseTrack3D(nn.Module):
@@ -130,7 +125,6 @@ class DenseTrack3D(nn.Module):
         self.only_learnup = only_learnup
 
         if self.only_learnup:
-            # self.grad_context = torch.no_grad
             self.fixed_modules = [
                 "fnet",
                 "updateformer",

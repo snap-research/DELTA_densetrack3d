@@ -10,13 +10,13 @@ from einops import rearrange
 from densetrack3d.datasets.custom_data import read_data, read_data_with_depthcrafter
 from densetrack3d.models.densetrack3d.densetrack3d import DenseTrack3D
 from densetrack3d.models.geometry_utils import least_square_align
-from densetrack3d.models.predictor.dense_predictor import DensePredictor3D
+from densetrack3d.models.predictor.predictor import Predictor3D
 from densetrack3d.utils.depthcrafter_utils import read_video
 from densetrack3d.utils.visualizer import Visualizer
 
 
 BASE_DIR = os.getcwd()
-device = torch.device("cuda")
+
 
 @torch.inference_mode()
 def predict_unidepth(video, model):
@@ -67,8 +67,9 @@ def get_args_parser():
         "--use_depthcrafter", action="store_true", help="whether to use depthcrafter as input videodepth"
     )
     parser.add_argument("--viz_sparse", type=bool, default=True, help="whether to viz sparse tracking")
-    parser.add_argument("--downsample", type=int, default=16, help="downsample factor of sparse tracking")
+    # parser.add_argument("--downsample", type=int, default=16, help="downsample factor of sparse tracking")
     parser.add_argument("--upsample_factor", type=int, default=4, help="model stride")
+    parser.add_argument("--grid_size", type=int, default=20, help="model stride")
     parser.add_argument("--use_fp16", action="store_true", help="whether to use fp16 precision")
 
     return parser
@@ -96,7 +97,7 @@ if __name__ == "__main__":
             state_dict = state_dict["model"]
     model.load_state_dict(state_dict, strict=False)
 
-    predictor = DensePredictor3D(model=model)
+    predictor = Predictor3D(model=model)
     predictor = predictor.eval().cuda()
 
     video, videodepth, videodisp = read_data_with_depthcrafter(full_path=args.video_path)
@@ -107,7 +108,7 @@ if __name__ == "__main__":
         from unidepth.models import UniDepthV2
         from unidepth.utils import colorize, image_grid
 
-        
+        device = torch.device("cuda")
         unidepth_model = UniDepthV2.from_pretrained(f"lpiccinelli/unidepth-v2-vitl14")
         unidepth_model = unidepth_model.eval().to(device)
 
@@ -153,24 +154,28 @@ if __name__ == "__main__":
     video = torch.from_numpy(video).permute(0, 3, 1, 2).cuda()[None].float()
     videodepth = torch.from_numpy(videodepth).unsqueeze(1).cuda()[None].float()
 
-    vid_name = args.video_path.split("/")[-1]
-    save_dir = os.path.join(args.output_path, vid_name)
-    os.makedirs(save_dir, exist_ok=True)
-    print(f"Save results to {save_dir}")
-
-    print("Run DenseTrack3D")
+    print("Run SparseTrack3D")
 
     with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=args.use_fp16):
         out_dict = predictor(
             video,
             videodepth,
+            queries=None,
+            segm_mask=None,
+            grid_size=args.grid_size,
             grid_query_frame=0,
+            backward_tracking=False,
+            predefined_intrs=None
         )
 
     trajs_3d_dict = {k: v[0].cpu().numpy() for k, v in out_dict["trajs_3d_dict"].items()}
 
+    vid_name = args.video_path.split("/")[-1]
+    save_dir = os.path.join(args.output_path, vid_name)
+    os.makedirs(save_dir, exist_ok=True)
+    print(f"Save results to {save_dir}")
     
-    with open(os.path.join(save_dir, f"dense_3d_track.pkl"), "wb") as handle:
+    with open(os.path.join(save_dir, f"sparse_3d_track.pkl"), "wb") as handle:
         pickle.dump(trajs_3d_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     if args.viz_sparse:
@@ -180,17 +185,8 @@ if __name__ == "__main__":
             save_dir="results/demo", fps=10, show_first_frame=0, linewidth=int(1 * W / 512), tracks_leave_trace=10
         )
 
-        trajs_uv = out_dict["trajs_uv"]
-        trajs_vis = out_dict["vis"]
-        dense_reso = out_dict["dense_reso"]
-
-        sparse_trajs_uv = rearrange(trajs_uv, "b t (h w) c -> b t h w c", h=dense_reso[0], w=dense_reso[1])
-        sparse_trajs_uv = sparse_trajs_uv[:, :, :: args.downsample, :: args.downsample]
-        sparse_trajs_uv = rearrange(sparse_trajs_uv, "b t h w c -> b t (h w) c")
-
-        sparse_trajs_vis = rearrange(trajs_vis, "b t (h w) -> b t h w", h=dense_reso[0], w=dense_reso[1])
-        sparse_trajs_vis = sparse_trajs_vis[:, :, :: args.downsample, :: args.downsample]
-        sparse_trajs_vis = rearrange(sparse_trajs_vis, "b t h w -> b t (h w)")
+        sparse_trajs_uv = out_dict["trajs_uv"]
+        sparse_trajs_vis = out_dict["vis"]
 
         video2d_viz = visualizer_2d.visualize(
             video, sparse_trajs_uv, sparse_trajs_vis[..., None], filename="demo", save_video=False

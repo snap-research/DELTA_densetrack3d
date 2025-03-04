@@ -15,19 +15,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from densetrack3d.models.model_utils import bilinear_sampler
 from einops import rearrange
-from einops.layers.torch import Rearrange
 from torch import Tensor, einsum
-
-
-# torch.backends.cuda.matmul.allow_tf32 = True
-# torch.backends.cudnn.allow_tf32 = True
-
-
-try:
-    from flash_attn import flash_attn_func
-except:
-    print("Flash attn not available")
-import time
 
 
 # From PyTorch internals

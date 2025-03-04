@@ -6,7 +6,7 @@
 
 import torch
 import torch.nn.functional as F
-from densetrack3d.models.model_utils import bilinear_sampler, get_points_on_a_grid
+from densetrack3d.models.model_utils import bilinear_sampler, get_points_on_a_grid, convert_trajs_uvd_to_trajs_3d
 from einops import einsum, rearrange, repeat
 
 
@@ -89,7 +89,7 @@ class DensePredictor3D(torch.nn.Module):
         dense_vis_e = dense_vis_e > 0.8
 
         if scale_to_origin:
-            dense_trajs_3d_dict = self.get_dense_trajs_3d(
+            dense_trajs_3d_dict = convert_trajs_uvd_to_trajs_3d(
                 dense_traj_e,
                 dense_traj_d_e,
                 dense_vis_e,
@@ -98,50 +98,55 @@ class DensePredictor3D(torch.nn.Module):
                 intr=predefined_intrs,
             )
         else:
-            dense_trajs_3d_dict = self.get_dense_trajs_3d(
-                dense_traj_e, dense_traj_d_e, dense_vis_e, video, query_frame=grid_query_frame, intr=predefined_intrs
+            dense_trajs_3d_dict = convert_trajs_uvd_to_trajs_3d(
+                dense_traj_e, 
+                dense_traj_d_e, 
+                dense_vis_e, 
+                video, 
+                query_frame=grid_query_frame, 
+                intr=predefined_intrs
             )
 
         out = {
             "trajs_uv": dense_traj_e,
             "trajs_depth": dense_traj_d_e,
-            "trajs_3d_dict": dense_trajs_3d_dict,
             "vis": dense_vis_e,
+            "trajs_3d_dict": dense_trajs_3d_dict,
             "conf": dense_conf_e,
             "dense_reso": self.interp_shape,
         }
 
         return out
 
-    def get_dense_trajs_3d(self, trajs_uv, trajs_depth, vis, video, intr=None, query_frame=0):
-        device = trajs_uv.device
-        B, T, _, H, W = video.shape
+    # def get_dense_trajs_3d(self, trajs_uv, trajs_depth, vis, video, intr=None, query_frame=0):
+    #     device = trajs_uv.device
+    #     B, T, _, H, W = video.shape
 
-        if intr is None:
-            intr = torch.tensor(
-                [
-                    [W, 0.0, W // 2],
-                    [0.0, W, H // 2],
-                    [0.0, 0.0, 1.0],
-                ]
-            ).to(device)
+    #     if intr is None:
+    #         intr = torch.tensor(
+    #             [
+    #                 [W, 0.0, W // 2],
+    #                 [0.0, W, H // 2],
+    #                 [0.0, 0.0, 1.0],
+    #             ]
+    #         ).to(device)
 
-        trajs_uv_homo = torch.cat([trajs_uv, torch.ones_like(trajs_uv[..., 0:1])], dim=-1)  # B T N 3
+    #     trajs_uv_homo = torch.cat([trajs_uv, torch.ones_like(trajs_uv[..., 0:1])], dim=-1)  # B T N 3
 
-        xyz = einsum(trajs_uv_homo, torch.linalg.inv(intr), "b t n j, i j -> b t n i")
-        xyz = xyz * trajs_depth
+    #     xyz = einsum(trajs_uv_homo, torch.linalg.inv(intr), "b t n j, i j -> b t n i")
+    #     xyz = xyz * trajs_depth
 
-        query_rgb = video[:, query_frame]  # B 3 H W
+    #     query_rgb = video[:, query_frame]  # B 3 H W
 
-        pred_tracks2dNm = trajs_uv[:, 0].clone()  #  B N 2
-        pred_tracks2dNm[..., 0] = 2 * (pred_tracks2dNm[..., 0] / W - 0.5)
-        pred_tracks2dNm[..., 1] = 2 * (pred_tracks2dNm[..., 1] / H - 0.5)
-        color_interp = F.grid_sample(query_rgb, pred_tracks2dNm[:, :, None, :], align_corners=True)
-        color_interp = rearrange(color_interp, "b c n 1 -> b n c")
+    #     pred_tracks2dNm = trajs_uv[:, 0].clone()  #  B N 2
+    #     pred_tracks2dNm[..., 0] = 2 * (pred_tracks2dNm[..., 0] / W - 0.5)
+    #     pred_tracks2dNm[..., 1] = 2 * (pred_tracks2dNm[..., 1] / H - 0.5)
+    #     color_interp = F.grid_sample(query_rgb, pred_tracks2dNm[:, :, None, :], align_corners=True)
+    #     color_interp = rearrange(color_interp, "b c n 1 -> b n c")
 
-        trajs_3d_dict = {
-            "coords": xyz,
-            "colors": color_interp,
-            "vis": vis,
-        }
-        return trajs_3d_dict
+    #     trajs_3d_dict = {
+    #         "coords": xyz,
+    #         "colors": color_interp,
+    #         "vis": vis,
+    #     }
+    #     return trajs_3d_dict
