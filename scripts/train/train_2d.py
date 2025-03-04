@@ -428,6 +428,7 @@ class Lite(LightningLite):
             traj_per_sample=256,
             sample_vis_1st_frame=True,
             use_augs=not args.dont_use_augs,
+            use_gt_depth=True,
         )
 
 

@@ -636,13 +636,14 @@ class KubricDataset(BasicDataset):
             depths.append(depth)
         depths = np.stack(depths)[..., None]   # T, H, W, 1
 
-        pred_depth_path = os.path.join(data_root_, seq_name, "unidepth_depths.npy")
-        # assert os.path.exists(pred_depth_path)
-        if self.read_from_s3:
-            pred_depths = np.load(get_client_stream(self.s3_client, pred_depth_path))
-        else:
-            pred_depths = np.load(pred_depth_path)
-        pred_depths = pred_depths.astype(np.float32)[..., None]
+        # pred_depth_path = os.path.join(data_root_, seq_name, "unidepth_depths.npy")
+        # # assert os.path.exists(pred_depth_path)
+        # if self.read_from_s3:
+        #     pred_depths = np.load(get_client_stream(self.s3_client, pred_depth_path))
+        # else:
+        #     pred_depths = np.load(pred_depth_path)
+        # pred_depths = pred_depths.astype(np.float32)[..., None]
+        pred_depths = np.zeros_like(depths)
 
         
 
@@ -689,28 +690,28 @@ class KubricDataset(BasicDataset):
         
         depths = depth_min + depth_f32 * (depth_max-depth_min) / 65535.0
 
-        aligned_pred_depths = self.lsq_depth(depths, pred_depths)[0]
-        aligned_pred_depths[aligned_pred_depths<depth_min] = depth_min
-        aligned_pred_depths[aligned_pred_depths>depth_max] = depth_max
+        # aligned_pred_depths = self.lsq_depth(depths, pred_depths)[0]
+        # aligned_pred_depths[aligned_pred_depths<depth_min] = depth_min
+        # aligned_pred_depths[aligned_pred_depths>depth_max] = depth_max
 
-        pred_depths = aligned_pred_depths
+        # pred_depths = aligned_pred_depths
 
-        if not self.use_gt_depth:
-            if np.random.rand() < 0.5:
+        # if not self.use_gt_depth:
+        #     if np.random.rand() < 0.5:
                 
-                depths = aligned_pred_depths
-                if np.any(np.isnan(depths)):
-                    print("warning: depth contains nan")
-                    gotit = False
-                    return None, gotit
+        #         depths = aligned_pred_depths
+        #         if np.any(np.isnan(depths)):
+        #             print("warning: depth contains nan")
+        #             gotit = False
+        #             return None, gotit
                 
-                if np.any(np.isinf(np.absolute(depths))):
-                    print("warning: depth contains inf")
-                    gotit = False
-                    return None, gotit
+        #         if np.any(np.isinf(np.absolute(depths))):
+        #             print("warning: depth contains inf")
+        #             gotit = False
+        #             return None, gotit
 
-                depths[depths<depth_min] = depth_min
-                depths[depths>depth_max] = depth_max
+        #         depths[depths<depth_min] = depth_min
+        #         depths[depths>depth_max] = depth_max
 
 
 
