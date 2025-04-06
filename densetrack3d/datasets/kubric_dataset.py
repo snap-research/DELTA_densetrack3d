@@ -571,7 +571,6 @@ class KubricDataset(BasicDataset):
             
             gotit = False
 
-
             while not gotit:
                 sample, gotit = self.getitem_helper(index)
 
@@ -579,6 +578,7 @@ class KubricDataset(BasicDataset):
                     return sample, True
                 
                 index = (index +1) % self.__len__()
+            
         except:
             if self.read_from_s3 and self.s3_client is not None:
                 del self.s3_client
@@ -655,10 +655,6 @@ class KubricDataset(BasicDataset):
                 dense_annot_dict = np.load(get_client_stream(self.s3_client, npy_dense_path), allow_pickle=True).item()
             else:
                 dense_annot_dict = np.load(npy_dense_path, allow_pickle=True).item()
-            dense_traj_2d = dense_annot_dict["coords"].astype(np.float32)
-            dense_traj_depth = dense_annot_dict["reproj_depth"].astype(np.float32)[..., None]
-            dense_visibility = dense_annot_dict["visibility"].astype(bool)
-            dense_queries = dense_annot_dict["queries"].astype(np.float32) # N, 3
         else:
             is_reverse = True
             npy_dense_path = os.path.join(data_root_, seq_name, seq_name + "_dense_reverse.npy")
@@ -666,10 +662,23 @@ class KubricDataset(BasicDataset):
                 dense_annot_dict = np.load(get_client_stream(self.s3_client, npy_dense_path), allow_pickle=True).item()
             else:
                 dense_annot_dict = np.load(npy_dense_path, allow_pickle=True).item()
-            dense_traj_2d = dense_annot_dict["reverse_coords"].astype(np.float32)
-            dense_traj_depth = dense_annot_dict["reverse_reproj_depth"].astype(np.float32)[..., None]
-            dense_visibility = dense_annot_dict["reverse_visibility"].astype(bool)
-            dense_queries = dense_annot_dict["reverse_queries"].astype(np.float32) # N, 3
+
+        if np.random.rand() < 0.5 or self.is_val: # NOTE randomly load the forward dense annotations (track from 0 to T) or the reverse dense annotations (track from T to 0)
+            is_reverse = False
+            npy_dense_path = os.path.join(data_root_, seq_name, seq_name + "_dense.npy")
+        else:
+            is_reverse = True
+            npy_dense_path = os.path.join(data_root_, seq_name, seq_name + "_dense_reverse.npy")
+        
+        if self.read_from_s3:
+            dense_annot_dict = np.load(get_client_stream(self.s3_client, npy_dense_path), allow_pickle=True).item()
+        else:
+            dense_annot_dict = np.load(npy_dense_path, allow_pickle=True).item()
+        
+        dense_traj_2d = dense_annot_dict["coords"].astype(np.float32)
+        dense_traj_depth = dense_annot_dict["reproj_depth"].astype(np.float32)[..., None]
+        dense_visibility = dense_annot_dict["visibility"].astype(bool)
+        dense_queries = dense_annot_dict["queries"].astype(np.float32) # N, 3
 
         npy_path = os.path.join(data_root_, seq_name, seq_name + ".npy")
         if self.read_from_s3:
